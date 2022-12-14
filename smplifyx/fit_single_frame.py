@@ -45,6 +45,10 @@ from optimizers import optim_factory
 import fitting
 from human_body_prior.tools.model_loader import load_vposer
 
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+import smplx
+
 
 def fit_single_frame(img,
                      keypoints,
@@ -387,6 +391,18 @@ def fit_single_frame(img,
         results = []
 
         # Step 2: Optimize the full model
+        left_hand_model = smplx.create(
+            os.path.join(kwargs.get("model_folder"), "mano", "MANO_LEFT.pkl"),
+            use_pca=True,
+            num_pca_comps=kwargs.get("num_pca_comps"),
+            is_rhand=False,
+        )
+        right_hand_model = smplx.create(
+            os.path.join(kwargs.get("model_folder"), "mano", "MANO_RIGHT.pkl"),
+            use_pca=True,
+            num_pca_comps=kwargs.get("num_pca_comps"),
+            is_rhand=True,
+        )
         final_loss_val = 0
         for or_idx, orient in enumerate(tqdm(orientations, desc='Orientation')):
             opt_start = time.time()
@@ -469,7 +485,10 @@ def fit_single_frame(img,
             result.update({key: val.detach().cpu().numpy()
                            for key, val in body_model.named_parameters()})
             if use_vposer:
-                result['body_pose'] = pose_embedding.detach().cpu().numpy()
+                result['body_pose'] = vposer.decode(pose_embedding, output_type='aa').detach().cpu().numpy().reshape((1, 63))
+            del result["global_orient"]
+            result["left_hand_pose"] = np.dot(result["left_hand_pose"], left_hand_model.np_hand_components)
+            result["right_hand_pose"] = np.dot(result["right_hand_pose"], right_hand_model.np_hand_components)
 
             results.append({'loss': final_loss_val,
                             'result': result})
