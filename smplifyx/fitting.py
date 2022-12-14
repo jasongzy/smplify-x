@@ -105,7 +105,9 @@ def guess_init(model,
     batch_size = joints_3d.shape[0]
     x_coord = torch.zeros([batch_size], device=joints_3d.device,
                           dtype=dtype)
-    y_coord = x_coord.clone()
+    # y_coord = x_coord.clone()
+    y_coord = torch.ones([batch_size], device=joints_3d.device,
+                          dtype=dtype) * 1.0
     init_t = torch.stack([x_coord, y_coord, est_d], dim=1)
     return init_t
 
@@ -186,10 +188,12 @@ class FittingMonitor(object):
                 loss_rel_change = utils.rel_change(prev_loss, loss.item())
 
                 if loss_rel_change <= self.ftol:
+                    # print('loss rel change')
                     break
 
             if all([torch.abs(var.grad.view(-1).max()).item() < self.gtol
                     for var in params if var.grad is not None]):
+                # print('gradient')
                 break
 
             if self.visualize and n % self.summary_steps == 0:
@@ -231,9 +235,11 @@ class FittingMonitor(object):
                 optimizer.zero_grad()
 
             body_pose = vposer.decode(
-                pose_embedding, output_type='aa').view(
-                    1, -1) if use_vposer else None
-
+                pose_embedding, output_type='aa') if use_vposer else None
+            # idx_fixed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+            # for id in idx_fixed:
+            #     body_pose[:, :, id, :] = 0.0
+            body_pose = body_pose.view(1, -1)
             if append_wrists:
                 wrist_pose = torch.zeros([body_pose.shape[0], 6],
                                          dtype=body_pose.dtype,
@@ -243,6 +249,7 @@ class FittingMonitor(object):
             body_model_output = body_model(return_verts=return_verts,
                                            body_pose=body_pose,
                                            return_full_pose=return_full_pose)
+            global_orient = body_model_output.global_orient
             total_loss = loss(body_model_output, camera=camera,
                               gt_joints=gt_joints,
                               body_model_faces=faces_tensor,
@@ -250,6 +257,8 @@ class FittingMonitor(object):
                               joint_weights=joint_weights,
                               pose_embedding=pose_embedding,
                               use_vposer=use_vposer,
+                              global_orient=global_orient,
+                              body_pose=body_pose,
                               **kwargs)
 
             if backward:
@@ -274,6 +283,9 @@ def create_loss(loss_type='smplify', **kwargs):
         return SMPLifyLoss(**kwargs)
     elif loss_type == 'camera_init':
         return SMPLifyCameraInitLoss(**kwargs)
+        # return SMPLifyWeakCameraInitLoss(**kwargs)
+    elif loss_type == 'camera':
+        return SMPLifyCameraLoss(**kwargs)
     else:
         raise ValueError('Unknown loss type: {}'.format(loss_type))
 
@@ -349,6 +361,7 @@ class SMPLifyLoss(nn.Module):
         if self.interpenetration:
             self.register_buffer('coll_loss_weight',
                                  torch.tensor(coll_loss_weight, dtype=dtype))
+        self.temp = torch.tensor([[np.pi, 0, 0]], dtype=torch.float32).cuda()
 
     def reset_loss_weights(self, loss_weight_dict):
         for key in loss_weight_dict:
@@ -364,7 +377,8 @@ class SMPLifyLoss(nn.Module):
 
     def forward(self, body_model_output, camera, gt_joints, joints_conf,
                 body_model_faces, joint_weights,
-                use_vposer=False, pose_embedding=None,
+                use_vposer=False, pose_embedding=None,global_orient=None,
+                body_pose=None,
                 **kwargs):
         projected_joints = camera(body_model_output.joints)
         # Calculate the weights for each joints
@@ -389,11 +403,25 @@ class SMPLifyLoss(nn.Module):
 
         shape_loss = torch.sum(self.shape_prior(
             body_model_output.betas)) * self.shape_weight ** 2
+        # shape_loss = torch.sum(self.shape_prior(
+        #     body_model_output.betas)) * 1000 ** 2
+
         # Calculate the prior over the joint rotations. This a heuristic used
         # to prevent extreme rotation of the elbows and knees
         body_pose = body_model_output.full_pose[:, 3:66]
         angle_prior_loss = torch.sum(
             self.angle_prior(body_pose)) * self.bending_prior_weight
+
+        # # self-added
+        body_pose = body_pose.reshape(-1, 3)
+        idx_fixed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        new_constraint_pose = body_pose[idx_fixed]
+        # for id in idx_fixed:
+        #     body_pose[:, :, id, :] = 0.0
+        another_angle_loss = 1000.0 * torch.sum(new_constraint_pose.pow(2))
+        global_ori_loss = torch.sum(2000.0 * (body_model_output.global_orient - self.temp) ** 2)
+        # print(body_model_output.global_orient)
+        # print(new_constraint_pose)
 
         # Apply the prior on the pose space of the hand
         left_hand_prior_loss, right_hand_prior_loss = 0.0, 0.0
@@ -443,9 +471,10 @@ class SMPLifyLoss(nn.Module):
                     self.pen_distance(triangles, collision_idxs))
 
         total_loss = (joint_loss + pprior_loss + shape_loss +
-                      angle_prior_loss + pen_loss +
+                       pen_loss + angle_prior_loss +
                       jaw_prior_loss + expression_loss +
-                      left_hand_prior_loss + right_hand_prior_loss)
+                      left_hand_prior_loss + right_hand_prior_loss + global_ori_loss + another_angle_loss)
+        # total_loss = global_loss
         return total_loss
 
 
@@ -501,3 +530,90 @@ class SMPLifyCameraInitLoss(nn.Module):
                 camera.translation[:, 2] - self.trans_estimation[:, 2]).pow(2))
 
         return joint_loss + depth_loss
+
+
+class SMPLifyCameraLoss(nn.Module):
+    def __init__(self, init_joints_idxs, trans_estimation=None,
+                 reduction='sum',
+                 data_weight=1.0,
+                 depth_loss_weight=1e2, dtype=torch.float32,
+                 **kwargs):
+        super(SMPLifyCameraLoss, self).__init__()
+        self.dtype = dtype
+
+        self.register_buffer('data_weight',
+                             torch.tensor(data_weight, dtype=dtype))
+        self.register_buffer(
+            'init_joints_idxs',
+            utils.to_tensor(init_joints_idxs, dtype=torch.long))
+
+    def reset_loss_weights(self, loss_weight_dict):
+        for key in loss_weight_dict:
+            if hasattr(self, key):
+                weight_tensor = getattr(self, key)
+                weight_tensor = torch.tensor(loss_weight_dict[key],
+                                             dtype=weight_tensor.dtype,
+                                             device=weight_tensor.device)
+                setattr(self, key, weight_tensor)
+
+    def forward(self, body_model_output, camera, gt_joints,
+                **kwargs):
+
+        projected_joints = camera(body_model_output.joints)
+
+        joint_error = torch.pow(
+            torch.index_select(gt_joints, 1, self.init_joints_idxs) -
+            torch.index_select(projected_joints, 1, self.init_joints_idxs),
+            2)
+        joint_loss = torch.sum(joint_error) * self.data_weight ** 2
+
+        return joint_loss
+
+
+
+
+class SMPLifyWeakCameraInitLoss(nn.Module):
+
+    def __init__(self, init_joints_idxs, trans_estimation=None,
+                 reduction='sum',
+                 data_weight=1.0,
+                 depth_loss_weight=1e2, dtype=torch.float32,
+                 **kwargs):
+        super(SMPLifyWeakCameraInitLoss, self).__init__()
+        self.dtype = dtype
+
+        self.register_buffer('data_weight',
+                             torch.tensor(data_weight, dtype=dtype))
+        self.register_buffer(
+            'init_joints_idxs',
+            utils.to_tensor(init_joints_idxs, dtype=torch.long))
+        self.register_buffer('depth_loss_weight',
+                             torch.tensor(depth_loss_weight, dtype=dtype))
+
+    def reset_loss_weights(self, loss_weight_dict):
+        for key in loss_weight_dict:
+            if hasattr(self, key):
+                weight_tensor = getattr(self, key)
+                weight_tensor = torch.tensor(loss_weight_dict[key],
+                                             dtype=weight_tensor.dtype,
+                                             device=weight_tensor.device)
+                setattr(self, key, weight_tensor)
+
+    def forward(self, body_model_output, camera, gt_joints,
+                **kwargs):
+
+        projected_joints = camera(body_model_output.joints)
+
+        joint_error = torch.pow(
+            torch.index_select(gt_joints, 1, self.init_joints_idxs) -
+            torch.index_select(projected_joints, 1, self.init_joints_idxs),
+            2)
+        joint_loss = torch.sum(joint_error) * self.data_weight ** 2
+
+        # depth_loss = 0.0
+        # if (self.depth_loss_weight.item() > 0 and self.trans_estimation is not
+        #         None):
+        #     depth_loss = self.depth_loss_weight ** 2 * torch.sum((
+        #         camera.translation[:, 2] - self.trans_estimation[:, 2]).pow(2))
+
+        return joint_loss #+ depth_loss

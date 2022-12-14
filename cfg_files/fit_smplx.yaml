@@ -62,7 +62,7 @@ shape_weights:
     - 5.0e1
     - 1.0e1
     - 0.5e1
-    - 0.5e1
+    - 1.0e1
 expr_weights:
     - 1.0e2
     - 5.0e1

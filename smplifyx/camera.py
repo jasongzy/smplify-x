@@ -35,6 +35,8 @@ PerspParams = namedtuple('ModelOutput',
 def create_camera(camera_type='persp', **kwargs):
     if camera_type.lower() == 'persp':
         return PerspectiveCamera(**kwargs)
+    elif camera_type.lower() == 'weak-persp':
+        return WeakPerspectiveCamera(**kwargs)
     else:
         raise ValueError('Uknown camera type: {}'.format(camera_type))
 
@@ -90,6 +92,7 @@ class PerspectiveCamera(nn.Module):
                                    requires_grad=True)
         self.register_parameter('translation', translation)
 
+
     def forward(self, points):
         device = points.device
 
@@ -115,3 +118,51 @@ class PerspectiveCamera(nn.Module):
         img_points = torch.einsum('bki,bji->bjk', [camera_mat, img_points]) \
             + self.center.unsqueeze(dim=1)
         return img_points
+
+
+
+class WeakPerspectiveCamera(nn.Module):
+    ''' Scaled Orthographic / Weak-Perspective Camera
+    '''
+
+    def __init__(self, batch_size=1, scale=None, translation=None,
+                 dtype=torch.float32, **kwargs):
+        super(WeakPerspectiveCamera, self).__init__()
+
+        if scale is None:
+            scale = torch.ones([batch_size, 1], dtype=dtype)
+        scale = nn.Parameter(scale,
+                                   requires_grad=True)
+        self.register_parameter('scale', scale)
+
+        if translation is None:
+            translation = torch.zeros([batch_size, 2], dtype=dtype)
+        translation = nn.Parameter(translation,
+                                   requires_grad=True)
+        self.register_parameter('translation', translation)
+
+        assert self.translation.shape[-1] == 2, 'Translation shape must be -1x2'
+        assert self.scale.shape[-1] == 1, 'Scale shape must be -1x1'
+
+    def forward(self, points):
+        ''' Implements the forward pass for a Scaled Orthographic Camera
+
+            Parameters
+            ----------
+                points: torch.tensor, BxNx3
+                    The tensor that contains the points that will be projected.
+                    If not in homogeneous coordinates, then
+                scale: torch.tensor, Bx1
+                    The predicted scaling parameters
+                translation: torch.tensor, Bx2
+                    The translation applied on the image plane to the points
+            Returns
+            -------
+                projected_points: torch.tensor, BxNx2
+                    The points projected on the image plane, according to the
+                    given scale and translation
+        '''
+
+        projected_points = self.scale.view(-1, 1, 1) * (
+            points[:, :, :2]) + self.translation.view(-1, 1, 2)
+        return projected_points

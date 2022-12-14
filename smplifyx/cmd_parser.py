@@ -99,7 +99,7 @@ def parse_config(argv=None):
                         help='The type of the model that we will fit to the' +
                         ' data.')
     parser.add_argument('--camera_type', type=str, default='persp',
-                        choices=['persp'],
+                        choices=['persp', 'weak-persp'],
                         help='The type of camera used')
     parser.add_argument('--optim_jaw', default=True,
                         type=lambda x: x.lower() in ['true', '1'],
@@ -201,7 +201,8 @@ def parse_config(argv=None):
                         type=float,
                         help='The weights of the body pose regularizer')
     parser.add_argument('--shape_weights',
-                        default=[1e2, 5 * 1e1, 1e1, .5 * 1e1],
+                        # default=[1e2, 5 * 1e1, 1e1, .5 * 1e1],
+                        default=[1e2, 5 * 1e1, 1e1, 1e1],
                         type=float, nargs='*',
                         help='The weights of the Shape regularizer')
     parser.add_argument('--expr_weights',
