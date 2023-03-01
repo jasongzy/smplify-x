@@ -28,7 +28,7 @@ focal_length: 5000
 num_pca_comps: 12
 # The constant for the robust loss function
 rho: 100
-interpenetration: False
+interpenetration: True
 df_cone_height: 0.0001
 # Upper arms and Spine 2
 # Neck and jaw
@@ -42,14 +42,14 @@ gtol: 1e-9
 lr: 1.0
 # Max number of optimization iterations
 maxiters: 30
-interactive: True
+interactive: False
 visualize: False
 # Relative change in loss value
 body_pose_prior_weights:
     - 4.04e2
     - 4.04e2
     - 57.4e0
-    - 4.78e0
+    - 4.78e1
     - 4.78e0
 coll_loss_weights:
     - 0.0
