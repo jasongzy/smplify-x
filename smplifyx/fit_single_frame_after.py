@@ -104,6 +104,8 @@ def fit_single_frame(img,
                      init_pose_embedding=None,
                      init_body_pose=None,
                      init_global_orient=None,
+                     prev_gt_joints=None,
+                     prev_proj_joints=None,
                      **kwargs):
     assert batch_size == 1, 'PyTorch L-BFGS only supports batch_size == 1'
 
@@ -200,9 +202,13 @@ def fit_single_frame(img,
     #     body_mean_pose = body_pose_prior.get_mean().detach().cpu()
 
     keypoint_data = torch.tensor(keypoints, dtype=dtype)
-    gt_joints = keypoint_data[:, :, :2]
+    # gt_joints = keypoint_data[:, :, :2]
+    gt_joints = keypoint_data
+    proj_gt_joints = gt_joints[:, :, :2]
     if use_joints_conf:
-        joints_conf = keypoint_data[:, :, 2].reshape(1, -1)
+        # joints_conf = keypoint_data[:, :, 2].reshape(1, -1)
+        joints_conf = torch.full((1, gt_joints.shape[1]), 1)
+        joints_conf[(keypoint_data == 0).all(-1)] = 0
 
     # Transfer the data to the correct device
     gt_joints = gt_joints.to(device=device, dtype=dtype)
@@ -349,6 +355,8 @@ def fit_single_frame(img,
                 closure = monitor.create_fitting_closure(
                     body_optimizer, body_model,
                     camera=camera, gt_joints=gt_joints,
+                    prev_gt_joints=prev_gt_joints,
+                    prev_proj_joints=prev_proj_joints,
                     joints_conf=joints_conf,
                     joint_weights=joint_weights,
                     loss=loss, create_graph=body_create_graph,
@@ -423,7 +431,7 @@ def fit_single_frame(img,
                 min_idx = 0
             pickle.dump(results[min_idx]['result'], result_file, protocol=2)
 
-    if save_meshes or visualize:
+    if save_meshes or True:
         body_pose = vposer.decode(
             pose_embedding,
             output_type='aa') if use_vposer else None
@@ -438,6 +446,7 @@ def fit_single_frame(img,
                                          device=body_pose.device)
                 body_pose = torch.cat([body_pose, wrist_pose], dim=1)
         model_output = body_model(return_verts=True, body_pose=body_pose)
+        proj_joints = camera(model_output.joints)
         vertices = model_output.vertices.detach().cpu().numpy().squeeze()
 
         import trimesh
@@ -448,7 +457,7 @@ def fit_single_frame(img,
         out_mesh.apply_transform(rot)
         out_mesh.export(mesh_fn)
 
-    if visualize:
+    if True:
         import pyrender
         os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
@@ -507,4 +516,4 @@ def fit_single_frame(img,
 
 
 
-    return body_model, camera, pose_embedding
+    return body_model, camera, pose_embedding, gt_joints.detach(), proj_joints.detach()

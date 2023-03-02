@@ -25,6 +25,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+def scale_pred_joints(gt_joints, pred_joints):
+    centered_pred_joints = pred_joints - pred_joints[:,8,:]
+    centered_pred_joints[:,:,1:] = - centered_pred_joints[:,:,1:]
+    scale = torch.norm(gt_joints[:,1,:]-gt_joints[:,8,:]) / torch.norm(centered_pred_joints[:,1,:])
+    scale_joints = scale * centered_pred_joints + gt_joints[:,8,:]
+
+    return scale_joints
 
 def to_tensor(tensor, dtype=torch.float32):
     if torch.Tensor == type(tensor):

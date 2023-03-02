@@ -101,6 +101,7 @@ def fit_single_frame(img,
                      ign_part_pairs=None,
                      left_shoulder_idx=2,
                      right_shoulder_idx=5,
+                     gt_vertices=None,
                      **kwargs):
     assert batch_size == 1, 'PyTorch L-BFGS only supports batch_size == 1'
 
@@ -200,12 +201,17 @@ def fit_single_frame(img,
         body_mean_pose = body_pose_prior.get_mean().detach().cpu()
 
     keypoint_data = torch.tensor(keypoints, dtype=dtype)
-    gt_joints = keypoint_data[:, :, :2]
+    # gt_joints = keypoint_data[:, :, :2]
+    gt_joints = keypoint_data
+    proj_gt_joints = gt_joints[:, :, :2]
     if use_joints_conf:
-        joints_conf = keypoint_data[:, :, 2].reshape(1, -1)
+        # joints_conf = keypoint_data[:, :, 2].reshape(1, -1)
+        joints_conf = torch.full((1, gt_joints.shape[1]), 1)
+        joints_conf[(keypoint_data == 0).all(-1)] = 0
 
     # Transfer the data to the correct device
     gt_joints = gt_joints.to(device=device, dtype=dtype)
+    proj_gt_joints = proj_gt_joints.to(device=device, dtype=dtype)
     if use_joints_conf:
         joints_conf = joints_conf.to(device=device, dtype=dtype)
 
@@ -271,7 +277,12 @@ def fit_single_frame(img,
     init_joints_idxs = torch.tensor(init_joints_idxs, device=device)
 
     edge_indices = kwargs.get('body_tri_idxs')
-    init_t = fitting.guess_init(body_model, gt_joints, edge_indices,
+    # init_t = fitting.guess_init(body_model, gt_joints, edge_indices,
+    #                             use_vposer=use_vposer, vposer=vposer,
+    #                             pose_embedding=pose_embedding,
+    #                             model_type=kwargs.get('model_type', 'smpl'),
+    #                             focal_length=focal_length, dtype=dtype)
+    init_t = fitting.guess_init(body_model, proj_gt_joints, edge_indices,
                                 use_vposer=use_vposer, vposer=vposer,
                                 pose_embedding=pose_embedding,
                                 model_type=kwargs.get('model_type', 'smpl'),
@@ -365,8 +376,14 @@ def fit_single_frame(img,
             **kwargs)
 
         # The closure passed to the optimizer
+        # fit_camera = monitor.create_fitting_closure(
+        #     camera_optimizer, body_model, camera, gt_joints,
+        #     camera_loss, create_graph=camera_create_graph,
+        #     use_vposer=use_vposer, vposer=vposer,
+        #     pose_embedding=pose_embedding,
+        #     return_full_pose=False, return_verts=False)
         fit_camera = monitor.create_fitting_closure(
-            camera_optimizer, body_model, camera, gt_joints,
+            camera_optimizer, body_model, camera, proj_gt_joints,
             camera_loss, create_graph=camera_create_graph,
             use_vposer=use_vposer, vposer=vposer,
             pose_embedding=pose_embedding,
@@ -447,7 +464,8 @@ def fit_single_frame(img,
         # If the 2D detections/positions of the shoulder joints are too
         # close the rotate the body by 180 degrees and also fit to that
         # orientation
-        if try_both_orient:
+        # if try_both_orient:
+        if False:
             body_orient = body_model.global_orient.detach().cpu().numpy()
             flipped_orient = cv2.Rodrigues(body_orient)[0].dot(
                 cv2.Rodrigues(np.array([0., np.pi, 0]))[0])
@@ -610,7 +628,7 @@ def fit_single_frame(img,
                 min_idx = 0
             pickle.dump(results[min_idx]['result'], result_file, protocol=2)
 
-    if save_meshes or visualize:
+    if save_meshes or True:
         body_pose = vposer.decode(
             pose_embedding,
             output_type='aa') if use_vposer else None
@@ -624,7 +642,15 @@ def fit_single_frame(img,
                                          dtype=body_pose.dtype,
                                          device=body_pose.device)
                 body_pose = torch.cat([body_pose, wrist_pose], dim=1)
-        model_output = body_model(return_verts=True, body_pose=body_pose)
+        model_output = body_model(return_verts=True, body_pose=body_pose, return_full_pose=True)
+        joints = model_output.joints.detach().cpu().numpy().squeeze()
+
+        # x = joints[:,0]
+        # y = 2* joints[8,1] - joints[:,1]
+        # plt.scatter(x,y)
+        # plt.savefig('2d_fit_joints')
+
+        proj_joints = camera(model_output.joints)
         vertices = model_output.vertices.detach().cpu().numpy().squeeze()
 
         import trimesh
@@ -635,7 +661,13 @@ def fit_single_frame(img,
         out_mesh.apply_transform(rot)
         out_mesh.export(mesh_fn)
 
-    if visualize:
+        # gt_out_mesh = trimesh.Trimesh(gt_vertices, body_model.faces, process=False)
+        # rot = trimesh.transformations.rotation_matrix(
+        #     np.radians(180), [1, 0, 0])
+        # gt_out_mesh.apply_transform(rot)
+        # gt_out_mesh.export(mesh_fn[:-4]+'_gt.obj')
+
+    if True:
         import pyrender
         os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
@@ -693,4 +725,4 @@ def fit_single_frame(img,
         img.save(out_img_fn)
 
 
-    return body_model, camera, pose_embedding
+    return body_model, camera, pose_embedding, gt_joints.detach(), proj_joints.detach()
