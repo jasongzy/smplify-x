@@ -101,3 +101,6 @@ face_joints_weights:
 
 use_vposer: True
 vposer_ckpt: "vposer"
+
+input_2d_joints: False
+input_3d_joints: True

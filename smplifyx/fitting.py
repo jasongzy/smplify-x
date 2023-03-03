@@ -219,20 +219,14 @@ class FittingMonitor(object):
 
         return prev_loss
 
-    # def create_fitting_closure(self,
-    #                            optimizer, body_model, camera=None,
-    #                            gt_joints=None, loss=None,
-    #                            joints_conf=None,
-    #                            joint_weights=None,
-    #                            return_verts=True, return_full_pose=False,
-    #                            use_vposer=False, vposer=None,
-    #                            pose_embedding=None,
-    #                            create_graph=False,
-    #                            **kwargs):
     def create_fitting_closure(self,
                                optimizer, body_model, camera=None,
-                               gt_joints=None, loss=None, prev_gt_joints=None, prev_proj_joints=None,
-                               joints_conf=None,
+                               gt_joints_2d=None,
+                               gt_joints_3d=None,
+                               loss=None,
+                               prev_gt_joints=None, prev_proj_joints=None,
+                               joints_conf_2d=None,
+                               joints_conf_3d=None,
                                joint_weights=None,
                                return_verts=True, return_full_pose=False,
                                use_vposer=False, vposer=None,
@@ -262,22 +256,14 @@ class FittingMonitor(object):
                                            body_pose=body_pose,
                                            return_full_pose=return_full_pose)
             global_orient = body_model_output.global_orient
-            # total_loss = loss(body_model_output, camera=camera,
-            #                   gt_joints=gt_joints,
-            #                   body_model_faces=faces_tensor,
-            #                   joints_conf=joints_conf,
-            #                   joint_weights=joint_weights,
-            #                   pose_embedding=pose_embedding,
-            #                   use_vposer=use_vposer,
-            #                   global_orient=global_orient,
-            #                   body_pose=body_pose,
-            #                   **kwargs)
             total_loss = loss(body_model_output, camera=camera,
-                              gt_joints=gt_joints,
-                              prev_gt_joints=prev_gt_joints,
-                              prev_proj_joints=prev_proj_joints,
+                              gt_joints_2d=gt_joints_2d,
+                              gt_joints_3d=gt_joints_3d,
+                            #   prev_gt_joints=prev_gt_joints,
+                            #   prev_proj_joints=prev_proj_joints,
                               body_model_faces=faces_tensor,
-                              joints_conf=joints_conf,
+                              joints_conf_2d=joints_conf_2d,
+                              joints_conf_3d=joints_conf_3d,
                               joint_weights=joint_weights,
                               pose_embedding=pose_embedding,
                               use_vposer=use_vposer,
@@ -336,6 +322,8 @@ class SMPLifyLoss(nn.Module):
                  expr_prior_weight=0.0, jaw_prior_weight=0.0,
                  coll_loss_weight=0.0,
                  reduction='sum',
+                 input_2d_joints=True,
+                 input_3d_joints=True,
                  **kwargs):
 
         super(SMPLifyLoss, self).__init__()
@@ -365,6 +353,9 @@ class SMPLifyLoss(nn.Module):
         if self.use_face:
             self.expr_prior = expr_prior
             self.jaw_prior = jaw_prior
+        
+        self.input_2d_joints = input_2d_joints
+        self.input_3d_joints = input_3d_joints
 
         self.register_buffer('data_weight',
                              torch.tensor(data_weight, dtype=dtype))
@@ -399,38 +390,37 @@ class SMPLifyLoss(nn.Module):
                                                  device=weight_tensor.device)
                 setattr(self, key, weight_tensor)
 
-    # def forward(self, body_model_output, camera, gt_joints, joints_conf,
-    #             body_model_faces, joint_weights,
-    #             use_vposer=False, pose_embedding=None,global_orient=None,
-    #             body_pose=None,
-    #             **kwargs):
-    def forward(self, body_model_output, camera, gt_joints, joints_conf,
+    def forward(self, body_model_output, camera, 
+                gt_joints_2d, gt_joints_3d, 
+                joints_conf_2d, joints_conf_3d,
                 body_model_faces, joint_weights, 
                 prev_gt_joints=None,
                 prev_proj_joints=None,
                 use_vposer=False, pose_embedding=None,global_orient=None,
                 body_pose=None,
                 **kwargs):
-        # projected_joints = camera(body_model_output.joints)
         # Calculate the weights for each joints
-        weights = (joint_weights * joints_conf
-                   if self.use_joints_conf else
-                   joint_weights).unsqueeze(dim=-1)
-
-        # # Calculate the distance of the projected joints from
-        # # the ground truth 2D detections
-        # joint_diff = self.robustifier(gt_joints - projected_joints)
-        # joint_loss = (torch.sum(weights ** 2 * joint_diff) *
-        #               self.data_weight ** 2)
+        if self.input_2d_joints:
+            weights_2d = (joint_weights * joints_conf_2d
+                    if self.use_joints_conf else
+                    joint_weights).unsqueeze(dim=-1)
+        if self.input_3d_joints:
+            weights_3d = (joint_weights * joints_conf_3d
+                    if self.use_joints_conf else
+                    joint_weights).unsqueeze(dim=-1)
 
         # Calculate the distance of the projected joints from
-        # the ground truth 3D detections
-        pred_joints = body_model_output.joints
-        # joints[:,:,1] = 2* joints[:,8,1] - joints[:,:,1]
-        # joints[:,:,2] = 2* joints[:,8,2] - joints[:,:,2]
-        pred_joints = utils.scale_pred_joints(gt_joints, pred_joints)
-        joint_diff = self.robustifier(gt_joints - pred_joints)
-        joint_loss = (torch.sum(weights ** 2 * joint_diff) *
+        # the ground truth 2D/3D detections
+        joint_loss = 0.0
+        if self.input_2d_joints:
+            pred_joints_2d = camera(body_model_output.joints)
+            joint_diff_2d = self.robustifier(gt_joints_2d - pred_joints_2d)
+            joint_loss += (torch.sum(weights_2d ** 2 * joint_diff_2d) *
+                      self.data_weight ** 2)
+        if self.input_3d_joints:
+            pred_joints_3d = utils.scale_pred_joints(gt_joints_3d, body_model_output.joints)
+            joint_diff_3d = self.robustifier(gt_joints_3d - pred_joints_3d)
+            joint_loss += (torch.sum(weights_3d ** 2 * joint_diff_3d) *
                       self.data_weight ** 2)
 
         # # smooth the joints
@@ -505,7 +495,10 @@ class SMPLifyLoss(nn.Module):
         pen_loss = 0.0
         # Calculate the loss due to interpenetration
         if (self.interpenetration and self.coll_loss_weight.item() > 0):
-            batch_size = gt_joints.shape[0]
+            if self.input_2d_joints:
+                batch_size = gt_joints_2d.shape[0]
+            else:
+                batch_size = gt_joints_3d.shape[0]
             triangles = torch.index_select(
                 body_model_output.vertices, 1,
                 body_model_faces).view(batch_size, -1, 3, 3)
@@ -526,20 +519,7 @@ class SMPLifyLoss(nn.Module):
                        pen_loss + angle_prior_loss +
                       jaw_prior_loss + expression_loss +
                       left_hand_prior_loss + right_hand_prior_loss + global_ori_loss + another_angle_loss)
-                      
-        # total_loss = global_loss
         
-        # print('joint_loss',joint_loss)
-        # print('pprior_loss',pprior_loss)
-        # print('shape_loss',shape_loss)
-        # print('pen_loss',pen_loss)
-        # print('angle_prior_loss',angle_prior_loss)
-        # print('jaw_prior_loss',jaw_prior_loss)
-        # print('expression_loss',expression_loss)
-        # print('left_hand_prior_loss',left_hand_prior_loss)
-        # print('right_hand_prior_loss',right_hand_prior_loss)
-        # print('global_ori_loss',global_ori_loss)
-        # print('another_angle_loss',another_angle_loss)
         return total_loss
 
 
@@ -577,13 +557,13 @@ class SMPLifyCameraInitLoss(nn.Module):
                                              device=weight_tensor.device)
                 setattr(self, key, weight_tensor)
 
-    def forward(self, body_model_output, camera, gt_joints,
+    def forward(self, body_model_output, camera, gt_joints_2d,
                 **kwargs):
 
         projected_joints = camera(body_model_output.joints)
 
         joint_error = torch.pow(
-            torch.index_select(gt_joints, 1, self.init_joints_idxs) -
+            torch.index_select(gt_joints_2d, 1, self.init_joints_idxs) -
             torch.index_select(projected_joints, 1, self.init_joints_idxs),
             2)
         joint_loss = torch.sum(joint_error) * self.data_weight ** 2
@@ -621,13 +601,13 @@ class SMPLifyCameraLoss(nn.Module):
                                              device=weight_tensor.device)
                 setattr(self, key, weight_tensor)
 
-    def forward(self, body_model_output, camera, gt_joints,
+    def forward(self, body_model_output, camera, gt_joints_2d,
                 **kwargs):
 
         projected_joints = camera(body_model_output.joints)
 
         joint_error = torch.pow(
-            torch.index_select(gt_joints, 1, self.init_joints_idxs) -
+            torch.index_select(gt_joints_2d, 1, self.init_joints_idxs) -
             torch.index_select(projected_joints, 1, self.init_joints_idxs),
             2)
         joint_loss = torch.sum(joint_error) * self.data_weight ** 2
@@ -664,13 +644,13 @@ class SMPLifyWeakCameraInitLoss(nn.Module):
                                              device=weight_tensor.device)
                 setattr(self, key, weight_tensor)
 
-    def forward(self, body_model_output, camera, gt_joints,
+    def forward(self, body_model_output, camera, gt_joints_2d,
                 **kwargs):
 
         projected_joints = camera(body_model_output.joints)
 
         joint_error = torch.pow(
-            torch.index_select(gt_joints, 1, self.init_joints_idxs) -
+            torch.index_select(gt_joints_2d, 1, self.init_joints_idxs) -
             torch.index_select(projected_joints, 1, self.init_joints_idxs),
             2)
         joint_loss = torch.sum(joint_error) * self.data_weight ** 2

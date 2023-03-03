@@ -279,6 +279,12 @@ def parse_config(argv=None):
                         help='The tolerance threshold for the function')
     parser.add_argument('--maxiters', type=int, default=100,
                         help='The maximum iterations for the optimization')
+    parser.add_argument('--input_2d_joints',default=True,
+                        type=lambda x: x.lower() in ['true', '1'],
+                        help='whether use 2d joints')
+    parser.add_argument('--input_3d_joints',default=True,
+                        type=lambda x: x.lower() in ['true', '1'],
+                        help='whether use 3d joints')
 
     args = parser.parse_args(argv)
 

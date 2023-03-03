@@ -37,7 +37,7 @@ from torch.utils.data import Dataset
 from utils import smpl_to_openpose
 
 Keypoints = namedtuple('Keypoints',
-                       ['keypoints', 'gender_gt', 'gender_pd'])
+                       ['keypoints_2d', 'keypoints_3d', 'gender_gt', 'gender_pd'])
 
 Keypoints.__new__.__defaults__ = (None,) * len(Keypoints._fields)
 
@@ -54,7 +54,8 @@ def read_keypoints(keypoint_fn, use_hands=True, use_face=True,
     with open(keypoint_fn) as keypoint_file:
         data = json.load(keypoint_file)
 
-    keypoints = []
+    keypoints_2d = []
+    keypoints_3d = []
 
     gender_pd = []
     gender_gt = []
@@ -89,14 +90,46 @@ def read_keypoints(keypoint_fn, use_hands=True, use_face=True,
             body_keypoints = np.concatenate(
                 [body_keypoints, face_keypoints, contour_keyps], axis=0)
 
+        body_keypoints_3d = np.array(person_data['pose_keypoints_3d'],
+                                  dtype=np.float32)
+        body_keypoints_3d = body_keypoints_3d.reshape([-1, 4])
+        if use_hands:
+            left_hand_keyp_3d = np.array(
+                person_data['hand_left_keypoints_3d'],
+                dtype=np.float32).reshape([-1, 4])
+            right_hand_keyp_3d = np.array(
+                person_data['hand_right_keypoints_3d'],
+                dtype=np.float32).reshape([-1, 4])
+
+            body_keypoints_3d = np.concatenate(
+                [body_keypoints_3d, left_hand_keyp_3d, right_hand_keyp_3d], axis=0)
+        if use_face:
+            # TODO: Make parameters, 17 is the offset for the eye brows,
+            # etc. 51 is the total number of FLAME compatible landmarks
+            face_keypoints_3d = np.array(
+                person_data['face_keypoints_3d'],
+                dtype=np.float32).reshape([-1, 4])[17: 17 + 51, :]
+
+            contour_keyps_3d = np.array(
+                [], dtype=body_keypoints.dtype).reshape(0, 4)
+            if use_face_contour:
+                contour_keyps = np.array(
+                    person_data['face_keypoints_3d'],
+                    dtype=np.float32).reshape([-1, 4])[:17, :]
+
+            body_keypoints_3d = np.concatenate(
+                [body_keypoints_3d, face_keypoints_3d, contour_keyps_3d], axis=0)
+
         if 'gender_pd' in person_data:
             gender_pd.append(person_data['gender_pd'])
         if 'gender_gt' in person_data:
             gender_gt.append(person_data['gender_gt'])
 
-        keypoints.append(body_keypoints)
+        keypoints_2d.append(body_keypoints)
+        keypoints_3d.append(body_keypoints_3d)
 
-    return Keypoints(keypoints=keypoints, gender_pd=gender_pd,
+    return Keypoints(keypoints_2d=keypoints_2d, keypoints_3d=keypoints_3d,
+                     gender_pd=gender_pd,
                      gender_gt=gender_gt)
 
 
@@ -184,13 +217,16 @@ class OpenPose(Dataset):
                                     use_face=self.use_face,
                                     use_face_contour=self.use_face_contour)
 
-        if len(keyp_tuple.keypoints) < 1:
+        if len(keyp_tuple.keypoints_2d) < 1 and len(keyp_tuple.keypoints_3d) < 1:
             return {}
-        keypoints = np.stack(keyp_tuple.keypoints)
+        keypoints_2d = np.stack(keyp_tuple.keypoints_2d)
+        keypoints_3d = np.stack(keyp_tuple.keypoints_3d)
 
         output_dict = {'fn': img_fn,
                        'img_path': img_path,
-                       'keypoints': keypoints, 'img': img}
+                       'keypoints_2d': keypoints_2d,
+                       'keypoints_3d': keypoints_3d,
+                        'img': img}
         if keyp_tuple.gender_gt is not None:
             if len(keyp_tuple.gender_gt) > 0:
                 output_dict['gender_gt'] = keyp_tuple.gender_gt

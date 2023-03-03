@@ -67,6 +67,18 @@ def main(**args):
     if not osp.exists(out_img_folder):
         os.makedirs(out_img_folder)
 
+    input_2d_joints = args.pop('input_2d_joints', True)
+    input_3d_joints = args.pop('input_3d_joints', True)
+
+    if input_2d_joints and input_3d_joints:
+        print('Use both 2D joints and 3D joints.')
+    elif input_2d_joints:
+        print('Only use 2D joints.')
+    elif input_3d_joints:
+        print('Only use 3D joints.')
+    else:
+        raise Exception('No joints are used!')
+
     float_dtype = args['float_dtype']
     if float_dtype == 'float64':
         dtype = torch.float64
@@ -232,16 +244,17 @@ def main(**args):
 
     # model = smplx.create(gender='neutral', **params).to(device=device)
     # output = model.forward(return_full_pose=True, body_pose = body_pose, right_hand_pose=right_hand_pose, left_hand_pose=left_hand_pose)
-    # keypoints = output.joints.detach().cpu().numpy() * 100
-    # keypoints[:,:,:2] += 100
+    # keypoints_3d = output.joints.detach().cpu().numpy()
+    # # keypoints_3d[:,:,:2] += 100
+    # keypoints_2d = keypoints_3d[:,:,:2]
     # vertices = output.vertices.detach().cpu().numpy().squeeze()
 
-    # # x = keypoints[:,:,0]
-    # # y = keypoints[:,:,1]
-    # # plt.scatter(x,y)
+    # x = keypoints_3d[:,:,0]
+    # y = keypoints_3d[:,:,1]
+    # plt.scatter(x,y)
     # # plt.savefig('2d_gt_joints')
 
-    # img = torch.full((300, 300, 3), 0)
+    # img = torch.full((3, 3, 3), 0)
     # fn = 'test_pose'
 
     # curr_result_folder = osp.join(result_folder, fn)
@@ -280,7 +293,9 @@ def main(**args):
 
     # out_img_fn = osp.join(curr_img_folder, 'output.png')
 
-    # body_model, camera, pose_embedding, gt_joints, proj_joints = fit_single_frame(img, keypoints[[person_id]],
+    # body_model, camera, pose_embedding = fit_single_frame(img, keypoints_2d[[person_id]] ,keypoints_3d[[person_id]],
+    #                                                         input_2d_joints=input_2d_joints,
+    #                                                         input_3d_joints=input_3d_joints,
     #                                                         body_model=body_model,
     #                                                         camera=camera,
     #                                                         joint_weights=joint_weights,
@@ -306,8 +321,14 @@ def main(**args):
 
         img = data['img']
         fn = data['fn']
-        keypoints = data['keypoints']
+        keypoints_2d = data['keypoints_2d']
+        keypoints_3d = data['keypoints_3d']
         print('Processing: {}'.format(data['img_path']))
+
+        # x = keypoints_3d[:,:,0]
+        # y = keypoints_3d[:,:,1]
+        # plt.scatter(x,y)
+        # plt.savefig('2d_fit_joints')
 
         curr_result_folder = osp.join(result_folder, fn)
         if not osp.exists(curr_result_folder):
@@ -315,7 +336,8 @@ def main(**args):
         curr_mesh_folder = osp.join(mesh_folder, fn)
         if not osp.exists(curr_mesh_folder):
             os.makedirs(curr_mesh_folder)
-        for person_id in range(keypoints.shape[0]):
+
+        for person_id in range(max(keypoints_2d.shape[0],keypoints_3d.shape[0])):
             if person_id >= max_persons and max_persons > 0:
                 continue
 
@@ -347,7 +369,7 @@ def main(**args):
             out_img_fn = osp.join(curr_img_folder, 'output.png')
 
             if idx == 0:
-                body_model, camera, pose_embedding, gt_joints, proj_joints = fit_single_frame(img, keypoints[[person_id]],
+                body_model, camera, pose_embedding = fit_single_frame(img, keypoints_2d[[person_id]], keypoints_3d[[person_id]],
                                                                      body_model=body_model,
                                                                      camera=camera,
                                                                      joint_weights=joint_weights,
@@ -364,10 +386,12 @@ def main(**args):
                                                                      right_hand_prior=right_hand_prior,
                                                                      jaw_prior=jaw_prior,
                                                                      angle_prior=angle_prior,
+                                                                     input_2d_joints=input_2d_joints,
+                                                                     input_3d_joints=input_3d_joints,
                                                                      **args)
                 # print('Stage 1 pose embed', pose_embedding)
             else:
-                body_model, camera, pose_embedding, gt_joints, proj_joints = fit_single_frame_after.fit_single_frame(img, keypoints[[person_id]],
+                body_model, camera, pose_embedding = fit_single_frame_after.fit_single_frame(img, keypoints_2d[[person_id]], keypoints_3d[[person_id]],
                                                                                              body_model=body_model,
                                                                                              camera=camera,
                                                                                              joint_weights=joint_weights,
@@ -385,8 +409,8 @@ def main(**args):
                                                                                              jaw_prior=jaw_prior,
                                                                                              angle_prior=angle_prior,
                                                                                              init_pose_embedding=pose_embedding,
-                                                                                             prev_gt_joints=gt_joints,
-                                                                                             prev_proj_joints=proj_joints,
+                                                                                             input_2d_joints=input_2d_joints,
+                                                                                             input_3d_joints=input_3d_joints,
                                                                                              **args)
 
 

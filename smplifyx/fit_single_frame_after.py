@@ -51,7 +51,8 @@ import smplx
 
 
 def fit_single_frame(img,
-                     keypoints,
+                     keypoints_2d,
+                     keypoints_3d,
                      body_model,
                      camera,
                      joint_weights,
@@ -62,6 +63,8 @@ def fit_single_frame(img,
                      shape_prior,
                      expr_prior,
                      angle_prior,
+                     input_2d_joints=True,
+                     input_3d_joints=True,
                      result_fn='out.pkl',
                      mesh_fn='out.obj',
                      out_img_fn='overlay.png',
@@ -104,8 +107,8 @@ def fit_single_frame(img,
                      init_pose_embedding=None,
                      init_body_pose=None,
                      init_global_orient=None,
-                     prev_gt_joints=None,
-                     prev_proj_joints=None,
+                    #  prev_gt_joints=None,
+                    #  prev_proj_joints=None,
                      **kwargs):
     assert batch_size == 1, 'PyTorch L-BFGS only supports batch_size == 1'
 
@@ -201,19 +204,27 @@ def fit_single_frame(img,
     # else:
     #     body_mean_pose = body_pose_prior.get_mean().detach().cpu()
 
-    keypoint_data = torch.tensor(keypoints, dtype=dtype)
-    # gt_joints = keypoint_data[:, :, :2]
-    gt_joints = keypoint_data
-    proj_gt_joints = gt_joints[:, :, :2]
-    if use_joints_conf:
-        # joints_conf = keypoint_data[:, :, 2].reshape(1, -1)
-        joints_conf = torch.full((1, gt_joints.shape[1]), 1)
-        joints_conf[(keypoint_data == 0).all(-1)] = 0
+    keypoint_data_2d = torch.tensor(keypoints_2d, dtype=dtype)
+    keypoint_data_3d = torch.tensor(keypoints_3d, dtype=dtype)
 
-    # Transfer the data to the correct device
-    gt_joints = gt_joints.to(device=device, dtype=dtype)
+    gt_joints_2d = None
+    gt_joints_3d = None
+    if input_2d_joints:
+        gt_joints_2d = keypoint_data_2d[:,:,:2]
+        gt_joints_2d = gt_joints_2d.to(device=device, dtype=dtype)
+    if input_3d_joints:
+        gt_joints_3d = keypoint_data_3d[:,:,:3]
+        gt_joints_3d = gt_joints_3d.to(device=device, dtype=dtype)
+
+    joints_conf_2d = None
+    joints_conf_3d = None
     if use_joints_conf:
-        joints_conf = joints_conf.to(device=device, dtype=dtype)
+        if input_2d_joints:
+            joints_conf_2d = keypoint_data_2d[:, :, 2].reshape(1, -1)
+            joints_conf_2d = joints_conf_2d.to(device=device, dtype=dtype)
+        if input_3d_joints:
+            joints_conf_3d = keypoint_data_3d[:, :, 3].reshape(1, -1)
+            joints_conf_3d = joints_conf_3d.to(device=device, dtype=dtype)
 
     # Create the search tree
     search_tree = None
@@ -292,6 +303,8 @@ def fit_single_frame(img,
                                search_tree=search_tree,
                                tri_filtering_module=filter_faces,
                                dtype=dtype,
+                               input_2d_joints=input_2d_joints,
+                               input_3d_joints=input_3d_joints,
                                **kwargs)
     loss = loss.to(device=device)
 
@@ -354,10 +367,13 @@ def fit_single_frame(img,
 
                 closure = monitor.create_fitting_closure(
                     body_optimizer, body_model,
-                    camera=camera, gt_joints=gt_joints,
-                    prev_gt_joints=prev_gt_joints,
-                    prev_proj_joints=prev_proj_joints,
-                    joints_conf=joints_conf,
+                    camera=camera, 
+                    gt_joints_2d=gt_joints_2d,
+                    gt_joints_3d=gt_joints_3d,
+                    joints_conf_2d=joints_conf_2d,
+                    joints_conf_3d=joints_conf_3d,
+                    # prev_gt_joints=prev_gt_joints,
+                    # prev_proj_joints=prev_proj_joints,
                     joint_weights=joint_weights,
                     loss=loss, create_graph=body_create_graph,
                     use_vposer=use_vposer, vposer=vposer,
@@ -516,4 +532,4 @@ def fit_single_frame(img,
 
 
 
-    return body_model, camera, pose_embedding, gt_joints.detach(), proj_joints.detach()
+    return body_model, camera, pose_embedding #, gt_joints_2d.detach(), proj_joints.detach()

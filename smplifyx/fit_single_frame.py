@@ -51,7 +51,8 @@ import smplx
 
 
 def fit_single_frame(img,
-                     keypoints,
+                     keypoints_2d,
+                     keypoints_3d,
                      body_model,
                      camera,
                      joint_weights,
@@ -62,6 +63,8 @@ def fit_single_frame(img,
                      shape_prior,
                      expr_prior,
                      angle_prior,
+                     input_2d_joints=True,
+                     input_3d_joints=True,
                      result_fn='out.pkl',
                      mesh_fn='out.obj',
                      out_img_fn='overlay.png',
@@ -200,20 +203,29 @@ def fit_single_frame(img,
     else:
         body_mean_pose = body_pose_prior.get_mean().detach().cpu()
 
-    keypoint_data = torch.tensor(keypoints, dtype=dtype)
-    # gt_joints = keypoint_data[:, :, :2]
-    gt_joints = keypoint_data
-    proj_gt_joints = gt_joints[:, :, :2]
-    if use_joints_conf:
-        # joints_conf = keypoint_data[:, :, 2].reshape(1, -1)
-        joints_conf = torch.full((1, gt_joints.shape[1]), 1)
-        joints_conf[(keypoint_data == 0).all(-1)] = 0
+    keypoint_data_2d = torch.tensor(keypoints_2d, dtype=dtype)
+    keypoint_data_3d = torch.tensor(keypoints_3d, dtype=dtype)
 
-    # Transfer the data to the correct device
-    gt_joints = gt_joints.to(device=device, dtype=dtype)
-    proj_gt_joints = proj_gt_joints.to(device=device, dtype=dtype)
+    gt_joints_2d = None
+    gt_joints_3d = None
+    if input_2d_joints:
+        gt_joints_2d = keypoint_data_2d[:,:,:2]
+        gt_joints_2d = gt_joints_2d.to(device=device, dtype=dtype)
+    if input_3d_joints:
+        gt_joints_3d = keypoint_data_3d[:,:,:3]
+        gt_joints_3d = gt_joints_3d.to(device=device, dtype=dtype)
+
+    joints_conf_2d = None
+    joints_conf_3d = None
     if use_joints_conf:
-        joints_conf = joints_conf.to(device=device, dtype=dtype)
+        if input_2d_joints:
+            # joints_conf_2d = torch.full((1, gt_joints_2d.shape[1]), 1)
+            joints_conf_2d = keypoint_data_2d[:, :, 2].reshape(1, -1)
+            joints_conf_2d = joints_conf_2d.to(device=device, dtype=dtype)
+        if input_3d_joints:
+            # joints_conf_3d = torch.full((1, gt_joints_3d.shape[1]), 1)
+            joints_conf_3d = keypoint_data_3d[:, :, 3].reshape(1, -1)
+            joints_conf_3d = joints_conf_3d.to(device=device, dtype=dtype)
 
     # Create the search tree
     search_tree = None
@@ -277,12 +289,11 @@ def fit_single_frame(img,
     init_joints_idxs = torch.tensor(init_joints_idxs, device=device)
 
     edge_indices = kwargs.get('body_tri_idxs')
-    # init_t = fitting.guess_init(body_model, gt_joints, edge_indices,
-    #                             use_vposer=use_vposer, vposer=vposer,
-    #                             pose_embedding=pose_embedding,
-    #                             model_type=kwargs.get('model_type', 'smpl'),
-    #                             focal_length=focal_length, dtype=dtype)
-    init_t = fitting.guess_init(body_model, proj_gt_joints, edge_indices,
+    if input_2d_joints:
+        cametra_fit_joints = gt_joints_2d
+    else:
+        cametra_fit_joints = gt_joints_3d[:,:,:2]
+    init_t = fitting.guess_init(body_model, cametra_fit_joints, edge_indices,
                                 use_vposer=use_vposer, vposer=vposer,
                                 pose_embedding=pose_embedding,
                                 model_type=kwargs.get('model_type', 'smpl'),
@@ -320,6 +331,8 @@ def fit_single_frame(img,
                                search_tree=search_tree,
                                tri_filtering_module=filter_faces,
                                dtype=dtype,
+                               input_2d_joints=input_2d_joints,
+                               input_3d_joints=input_3d_joints,
                                **kwargs)
     loss = loss.to(device=device)
 
@@ -341,9 +354,9 @@ def fit_single_frame(img,
         # If the distance between the 2D shoulders is smaller than a
         # predefined threshold then try 2 fits, the initial one and a 180
         # degree rotation
-        shoulder_dist = torch.dist(gt_joints[:, left_shoulder_idx],
-                                   gt_joints[:, right_shoulder_idx])
-        try_both_orient = shoulder_dist.item() < side_view_thsh
+        # shoulder_dist = torch.dist(gt_joints[:, left_shoulder_idx],
+        #                            gt_joints[:, right_shoulder_idx])
+        # try_both_orient = shoulder_dist.item() < side_view_thsh
 
 
         ################# start of the perspective camera
@@ -376,15 +389,9 @@ def fit_single_frame(img,
             **kwargs)
 
         # The closure passed to the optimizer
-        # fit_camera = monitor.create_fitting_closure(
-        #     camera_optimizer, body_model, camera, gt_joints,
-        #     camera_loss, create_graph=camera_create_graph,
-        #     use_vposer=use_vposer, vposer=vposer,
-        #     pose_embedding=pose_embedding,
-        #     return_full_pose=False, return_verts=False)
         fit_camera = monitor.create_fitting_closure(
-            camera_optimizer, body_model, camera, proj_gt_joints,
-            camera_loss, create_graph=camera_create_graph,
+            camera_optimizer, body_model, camera, cametra_fit_joints,
+            loss=camera_loss, create_graph=camera_create_graph,
             use_vposer=use_vposer, vposer=vposer,
             pose_embedding=pose_embedding,
             return_full_pose=False, return_verts=False)
@@ -536,8 +543,11 @@ def fit_single_frame(img,
 
                 closure = monitor.create_fitting_closure(
                     body_optimizer, body_model,
-                    camera=camera, gt_joints=gt_joints,
-                    joints_conf=joints_conf,
+                    camera=camera, 
+                    gt_joints_2d=gt_joints_2d,
+                    gt_joints_3d=gt_joints_3d,
+                    joints_conf_2d=joints_conf_2d,
+                    joints_conf_3d=joints_conf_3d,
                     joint_weights=joint_weights,
                     loss=loss, create_graph=body_create_graph,
                     use_vposer=use_vposer, vposer=vposer,
@@ -570,6 +580,8 @@ def fit_single_frame(img,
                                                   device=device).unsqueeze(dim=0)
                     new_params = defaultdict(global_orient=new_orient)
                     body_model.reset_params(**new_params)
+
+
                 #
                 #     camera_loss2.reset_loss_weights({'data_weight': data_weight})
                 #     camera_opt_params2 = [camera.translation]
@@ -642,9 +654,11 @@ def fit_single_frame(img,
                                          dtype=body_pose.dtype,
                                          device=body_pose.device)
                 body_pose = torch.cat([body_pose, wrist_pose], dim=1)
+        # betas = torch.zeros([1,10], dtype=dtype, device=body_pose.device)
         model_output = body_model(return_verts=True, body_pose=body_pose, return_full_pose=True)
         joints = model_output.joints.detach().cpu().numpy().squeeze()
 
+        # import matplotlib.pyplot as plt
         # x = joints[:,0]
         # y = 2* joints[8,1] - joints[:,1]
         # plt.scatter(x,y)
@@ -725,4 +739,4 @@ def fit_single_frame(img,
         img.save(out_img_fn)
 
 
-    return body_model, camera, pose_embedding, gt_joints.detach(), proj_joints.detach()
+    return body_model, camera, pose_embedding #, gt_joints_2d.detach(), proj_joints.detach()
