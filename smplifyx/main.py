@@ -58,14 +58,16 @@ def main(**args):
     if not osp.exists(result_folder):
         os.makedirs(result_folder)
 
+    save_meshes = args.pop('save_meshes', False)
     mesh_folder = args.pop('mesh_folder', 'meshes')
     mesh_folder = osp.join(output_folder, mesh_folder)
-    if not osp.exists(mesh_folder):
-        os.makedirs(mesh_folder)
+    if save_meshes:
+        if not osp.exists(mesh_folder):
+            os.makedirs(mesh_folder)
 
     out_img_folder = osp.join(output_folder, 'images')
-    if not osp.exists(out_img_folder):
-        os.makedirs(out_img_folder)
+    # if not osp.exists(out_img_folder):
+    #     os.makedirs(out_img_folder)
 
     input_2d_joints = args.pop('input_2d_joints', True)
     input_3d_joints = args.pop('input_3d_joints', True)
@@ -78,6 +80,9 @@ def main(**args):
         print('Only use 3D joints.')
     else:
         raise Exception('No joints are used!')
+
+    idx_start = args.pop('idx_start')
+    idx_end = args.pop('idx_end')
 
     float_dtype = args['float_dtype']
     if float_dtype == 'float64':
@@ -319,105 +324,109 @@ def main(**args):
 
     for idx, data in enumerate(dataset_obj):
 
-        img = data['img']
-        fn = data['fn']
-        keypoints_2d = data['keypoints_2d']
-        keypoints_3d = data['keypoints_3d']
-        print('Processing: {}'.format(data['img_path']))
+        if idx_start <= idx and idx < idx_end:
+            img = data['img']
+            fn = data['fn']
+            keypoints_2d = data['keypoints_2d']
+            keypoints_3d = data['keypoints_3d']
+            print('Processing: {}'.format(data['img_path']))
 
-        # x = keypoints_3d[:,:,0]
-        # y = keypoints_3d[:,:,1]
-        # plt.scatter(x,y)
-        # plt.savefig('2d_fit_joints')
+            # x = keypoints_3d[:,:,0]
+            # y = keypoints_3d[:,:,1]
+            # plt.scatter(x,y)
+            # plt.savefig('2d_fit_joints')
 
-        curr_result_folder = osp.join(result_folder, fn)
-        if not osp.exists(curr_result_folder):
-            os.makedirs(curr_result_folder)
-        curr_mesh_folder = osp.join(mesh_folder, fn)
-        if not osp.exists(curr_mesh_folder):
-            os.makedirs(curr_mesh_folder)
+            curr_result_folder = osp.join(result_folder, fn)
+            if not osp.exists(curr_result_folder):
+                os.makedirs(curr_result_folder)
+            curr_mesh_folder = osp.join(mesh_folder, fn)
+            if save_meshes:
+                if not osp.exists(curr_mesh_folder):
+                    os.makedirs(curr_mesh_folder)
 
-        for person_id in range(max(keypoints_2d.shape[0],keypoints_3d.shape[0])):
-            if person_id >= max_persons and max_persons > 0:
-                continue
+            for person_id in range(max(keypoints_2d.shape[0],keypoints_3d.shape[0])):
+                if person_id >= max_persons and max_persons > 0:
+                    continue
 
-            curr_result_fn = osp.join(curr_result_folder,
-                                      '{:03d}.pkl'.format(person_id))
-            curr_mesh_fn = osp.join(curr_mesh_folder,
-                                    '{:03d}.obj'.format(person_id))
+                curr_result_fn = osp.join(curr_result_folder,
+                                        '{:03d}.pkl'.format(person_id))
+                curr_mesh_fn = osp.join(curr_mesh_folder,
+                                        '{:03d}.obj'.format(person_id))
 
-            curr_img_folder = osp.join(output_folder, 'images', fn,
-                                       '{:03d}'.format(person_id))
-            if not osp.exists(curr_img_folder):
-                os.makedirs(curr_img_folder)
+                curr_img_folder = osp.join(output_folder, 'images', fn,
+                                        '{:03d}'.format(person_id))
+                # if not osp.exists(curr_img_folder):
+                #     os.makedirs(curr_img_folder)
 
-            if gender_lbl_type != 'none':
-                if gender_lbl_type == 'pd' and 'gender_pd' in data:
-                    gender = data['gender_pd'][person_id]
-                if gender_lbl_type == 'gt' and 'gender_gt' in data:
-                    gender = data['gender_gt'][person_id]
-            else:
-                gender = input_gender
+                if gender_lbl_type != 'none':
+                    if gender_lbl_type == 'pd' and 'gender_pd' in data:
+                        gender = data['gender_pd'][person_id]
+                    if gender_lbl_type == 'gt' and 'gender_gt' in data:
+                        gender = data['gender_gt'][person_id]
+                else:
+                    gender = input_gender
 
-            if gender == 'neutral':
-                body_model = neutral_model
-            elif gender == 'female':
-                body_model = female_model
-            elif gender == 'male':
-                body_model = male_model
+                if gender == 'neutral':
+                    body_model = neutral_model
+                elif gender == 'female':
+                    body_model = female_model
+                elif gender == 'male':
+                    body_model = male_model
 
-            out_img_fn = osp.join(curr_img_folder, 'output.png')
+                out_img_fn = osp.join(curr_img_folder, 'output.png')
 
-            if idx == 0:
-                body_model, camera, pose_embedding = fit_single_frame(img, keypoints_2d[[person_id]], keypoints_3d[[person_id]],
-                                                                     body_model=body_model,
-                                                                     camera=camera,
-                                                                     joint_weights=joint_weights,
-                                                                     dtype=dtype,
-                                                                     output_folder=output_folder,
-                                                                     result_folder=curr_result_folder,
-                                                                     out_img_fn=out_img_fn,
-                                                                     result_fn=curr_result_fn,
-                                                                     mesh_fn=curr_mesh_fn,
-                                                                     shape_prior=shape_prior,
-                                                                     expr_prior=expr_prior,
-                                                                     body_pose_prior=body_pose_prior,
-                                                                     left_hand_prior=left_hand_prior,
-                                                                     right_hand_prior=right_hand_prior,
-                                                                     jaw_prior=jaw_prior,
-                                                                     angle_prior=angle_prior,
-                                                                     input_2d_joints=input_2d_joints,
-                                                                     input_3d_joints=input_3d_joints,
-                                                                     **args)
-                # print('Stage 1 pose embed', pose_embedding)
-            else:
-                body_model, camera, pose_embedding = fit_single_frame_after.fit_single_frame(img, keypoints_2d[[person_id]], keypoints_3d[[person_id]],
-                                                                                             body_model=body_model,
-                                                                                             camera=camera,
-                                                                                             joint_weights=joint_weights,
-                                                                                             dtype=dtype,
-                                                                                             output_folder=output_folder,
-                                                                                             result_folder=curr_result_folder,
-                                                                                             out_img_fn=out_img_fn,
-                                                                                             result_fn=curr_result_fn,
-                                                                                             mesh_fn=curr_mesh_fn,
-                                                                                             shape_prior=shape_prior,
-                                                                                             expr_prior=expr_prior,
-                                                                                             body_pose_prior=body_pose_prior,
-                                                                                             left_hand_prior=left_hand_prior,
-                                                                                             right_hand_prior=right_hand_prior,
-                                                                                             jaw_prior=jaw_prior,
-                                                                                             angle_prior=angle_prior,
-                                                                                             init_pose_embedding=pose_embedding,
-                                                                                             input_2d_joints=input_2d_joints,
-                                                                                             input_3d_joints=input_3d_joints,
-                                                                                             **args)
+                if idx == idx_start:
+                    body_model, camera, pose_embedding = fit_single_frame(img, keypoints_2d[[person_id]], keypoints_3d[[person_id]],
+                                                                        body_model=body_model,
+                                                                        camera=camera,
+                                                                        joint_weights=joint_weights,
+                                                                        dtype=dtype,
+                                                                        output_folder=output_folder,
+                                                                        result_folder=curr_result_folder,
+                                                                        out_img_fn=out_img_fn,
+                                                                        result_fn=curr_result_fn,
+                                                                        mesh_fn=curr_mesh_fn,
+                                                                        shape_prior=shape_prior,
+                                                                        expr_prior=expr_prior,
+                                                                        body_pose_prior=body_pose_prior,
+                                                                        left_hand_prior=left_hand_prior,
+                                                                        right_hand_prior=right_hand_prior,
+                                                                        jaw_prior=jaw_prior,
+                                                                        angle_prior=angle_prior,
+                                                                        input_2d_joints=input_2d_joints,
+                                                                        input_3d_joints=input_3d_joints,
+                                                                        save_meshes=save_meshes,
+                                                                        **args)
+                    # print('Stage 1 pose embed', pose_embedding)
+                else:
+                    body_model, camera, pose_embedding = fit_single_frame_after.fit_single_frame(img, keypoints_2d[[person_id]], keypoints_3d[[person_id]],
+                                                                                                body_model=body_model,
+                                                                                                camera=camera,
+                                                                                                joint_weights=joint_weights,
+                                                                                                dtype=dtype,
+                                                                                                output_folder=output_folder,
+                                                                                                result_folder=curr_result_folder,
+                                                                                                out_img_fn=out_img_fn,
+                                                                                                result_fn=curr_result_fn,
+                                                                                                mesh_fn=curr_mesh_fn,
+                                                                                                shape_prior=shape_prior,
+                                                                                                expr_prior=expr_prior,
+                                                                                                body_pose_prior=body_pose_prior,
+                                                                                                left_hand_prior=left_hand_prior,
+                                                                                                right_hand_prior=right_hand_prior,
+                                                                                                jaw_prior=jaw_prior,
+                                                                                                angle_prior=angle_prior,
+                                                                                                init_pose_embedding=pose_embedding,
+                                                                                                input_2d_joints=input_2d_joints,
+                                                                                                input_3d_joints=input_3d_joints,
+                                                                                                save_meshes=save_meshes,
+                                                                                                **args)
 
 
-    elapsed = time.time() - start
-    time_msg = time.strftime('%H hours, %M minutes, %S seconds',
-                             time.gmtime(elapsed))
-    print('Processing the data took: {}'.format(time_msg))
+        elapsed = time.time() - start
+        time_msg = time.strftime('%H hours, %M minutes, %S seconds',
+                                time.gmtime(elapsed))
+        print('Processing the data took: {}'.format(time_msg))
 
 
 if __name__ == "__main__":
