@@ -287,7 +287,7 @@ def parse_config(argv=None):
                         help='whether use 3d joints')
     parser.add_argument('--idx_start', type=int, default=0,
                         help='idx start')
-    parser.add_argument('--idx_end', type=int, default=0,
+    parser.add_argument('--idx_end', type=int, default=-1,
                         help='idx end')
 
     args = parser.parse_args(argv)

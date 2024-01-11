@@ -323,8 +323,7 @@ def main(**args):
     # generate sequence img
 
     for idx, data in enumerate(dataset_obj):
-
-        if idx_start <= idx and idx < idx_end:
+        if idx_start <= idx and (idx < idx_end or idx_end < 0):
             img = data['img']
             fn = data['fn']
             keypoints_2d = data['keypoints_2d']
