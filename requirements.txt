@@ -1,10 +1,13 @@
 numpy>=1.16.2
-torch>=1.0.1.post2
+# torch>=1.0.1.post2
 torchgeometry>=0.1.2
 PyYAML==5.1.1
 configargparse
-smplx
+smplx[all]
 pillow
 opencv-python
 tqdm
--e git+https://github.com/nghorbani/human_body_prior#egg=human_body_prior
+human-body-prior
+git+https://github.com/mattloper/chumpy
+git+https://github.com/zkf1997/torchgeometry
+-r optional-requirements.txt

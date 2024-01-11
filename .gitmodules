@@ -1,0 +1,4 @@
+[submodule "torch-mesh-isect"]
+	path = torch-mesh-isect
+	url = https://github.com/jasongzy/torch-mesh-isect
+	shallow = true
