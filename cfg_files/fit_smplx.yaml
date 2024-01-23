@@ -8,7 +8,8 @@ output_folder: '../data/smplifyx'
 prior_folder: 'priors'
 model_folder: 'models'
 result_folder: 'results'
-gender: "neutral"
+gender: "female"
+# gender: "neutral"
 model_type: 'smplx'
 # Flag for using the GPU
 use_cuda: True

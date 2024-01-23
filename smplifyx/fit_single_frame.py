@@ -519,6 +519,12 @@ def fit_single_frame(img,
                 #     continue
 
                 body_params = list(body_model.parameters())
+                # betas = [0.532,-0.931,0.171,0.223,0.133,0.033,0.109,-0.088,-0.090,-0.163]
+                betas = [-0.471,-1.130,0.289,0.283,0.201,-0.008,0.183,-0.100,-0.127,-0.146]
+                body_model.betas.requires_grad = False
+                for i in range(len(betas)):
+                    body_model.betas[:,i] = betas[i]
+                
 
                 final_params = list(
                     filter(lambda x: x.requires_grad, body_params))

@@ -422,6 +422,7 @@ class SMPLifyLoss(nn.Module):
             joint_diff_3d = self.robustifier(gt_joints_3d - pred_joints_3d)
             joint_loss += (torch.sum(weights_3d ** 2 * joint_diff_3d) *
                       self.data_weight ** 2)
+            # print(f'The scale is {torch.norm(gt_joints_3d[:,2,:]-gt_joints_3d[:,5,:])/torch.norm(pred_joints_3d[:,2,:]-pred_joints_3d[:,5,:])}')
 
         # # smooth the joints
         # smooth_joint_loss = 0.0
@@ -443,10 +444,9 @@ class SMPLifyLoss(nn.Module):
                 body_model_output.body_pose,
                 body_model_output.betas)) * self.body_pose_weight ** 2
 
-        shape_loss = torch.sum(self.shape_prior(
-            body_model_output.betas)) * self.shape_weight ** 2
+        shape_loss = 0.0
         # shape_loss = torch.sum(self.shape_prior(
-        #     body_model_output.betas)) * 1000 ** 2
+        #     body_model_output.betas)) * self.shape_weight ** 2
 
         # Calculate the prior over the joint rotations. This a heuristic used
         # to prevent extreme rotation of the elbows and knees

@@ -122,6 +122,8 @@ def main(**args):
                         create_global_orient=True,
                         create_body_pose=not args.get('use_vposer'),
                         create_betas=True,
+                        # betas=[[0.532,-0.931,0.171,0.223,0.133,0.033,0.109,-0.088,-0.090,-0.163]],
+                        betas=[[-0.471,-1.130,0.289,0.283,0.201,-0.008,0.183,-0.100,-0.127,-0.146]],
                         create_left_hand_pose=True,
                         create_right_hand_pose=True,
                         create_expression=True,
