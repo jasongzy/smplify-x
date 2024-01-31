@@ -39,9 +39,11 @@ from collections import defaultdict
 
 import cv2
 import PIL.Image as pil_img
+import matplotlib.pyplot as plt
 
 from optimizers import optim_factory
 
+import utils
 import fitting
 from human_body_prior.tools.model_loader import load_vposer
 
@@ -342,8 +344,8 @@ def fit_single_frame(img,
                     continue
 
                 body_params = list(body_model.parameters())
-                # betas = [0.532,-0.931,0.171,0.223,0.133,0.033,0.109,-0.088,-0.090,-0.163]
-                betas = [-0.471,-1.130,0.289,0.283,0.201,-0.008,0.183,-0.100,-0.127,-0.146]
+                betas = [-2.190,-0.549,0.261,0.277,0.204,-0.126,0.236,-0.041,-0.185,-0.078]
+                # betas = [-0.471,-1.130,0.289,0.283,0.201,-0.008,0.183,-0.100,-0.127,-0.146]
                 body_model.betas.requires_grad = False
                 for i in range(len(betas)):
                     body_model.betas[:,i] = betas[i]
@@ -477,6 +479,17 @@ def fit_single_frame(img,
         out_mesh.apply_transform(rot)
         out_mesh.export(mesh_fn)
 
+        pred_joints_3d = utils.scale_pred_joints(gt_joints_3d, model_output.joints)
+        plot_pred_joints = pred_joints_3d.detach().cpu().numpy().squeeze()
+        plot_gt_joints = gt_joints_3d.detach().cpu().numpy().squeeze()
+        pred_joints_x = plot_pred_joints[:,0]
+        pred_joints_z = plot_pred_joints[:,2]
+        gt_joints_x = plot_gt_joints[:,0]
+        gt_joints_z = plot_gt_joints[:,2]
+        plt.clf()
+        plt.scatter(pred_joints_x,pred_joints_z, c='red')
+        plt.scatter(gt_joints_x,gt_joints_z, c='blue')
+        plt.savefig(mesh_fn.replace('obj', 'jpg'))
     # if True:
     #     import pyrender
     #     os.environ['PYOPENGL_PLATFORM'] = 'egl'

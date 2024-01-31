@@ -419,9 +419,22 @@ class SMPLifyLoss(nn.Module):
                       self.data_weight ** 2)
         if self.input_3d_joints:
             pred_joints_3d = utils.scale_pred_joints(gt_joints_3d, body_model_output.joints)
+            # if self.counter % 100 == 0:
+            #     plot_pred_joints = pred_joints_3d.detach().cpu().numpy().squeeze()
+            #     plot_gt_joints = gt_joints_3d.detach().cpu().numpy().squeeze()
+            #     pred_joints_x = plot_pred_joints[:,0]
+            #     pred_joints_z = plot_pred_joints[:,2]
+            #     gt_joints_x = plot_gt_joints[:,0]
+            #     gt_joints_z = plot_gt_joints[:,2]
+            #     plt.clf()
+            #     plt.scatter(pred_joints_x,pred_joints_z, c='red')
+            #     plt.scatter(gt_joints_x,gt_joints_z, c='blue')
+            #     plt.savefig('compare')
+            # self.counter += 1
             joint_diff_3d = self.robustifier(gt_joints_3d - pred_joints_3d)
             joint_loss += (torch.sum(weights_3d ** 2 * joint_diff_3d) *
                       self.data_weight ** 2)
+            # print(f'The scale is {torch.norm(gt_joints_3d[:,1,:]-gt_joints_3d[:,8,:])/torch.norm(pred_joints_3d[:,1,:]-pred_joints_3d[:,8,:])}')
             # print(f'The scale is {torch.norm(gt_joints_3d[:,2,:]-gt_joints_3d[:,5,:])/torch.norm(pred_joints_3d[:,2,:]-pred_joints_3d[:,5,:])}')
 
         # # smooth the joints

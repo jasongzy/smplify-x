@@ -28,9 +28,17 @@ import torch.nn as nn
 def scale_pred_joints(gt_joints, pred_joints):
     centered_pred_joints = pred_joints - pred_joints[:,8,:]
     centered_pred_joints[:,:,1:] = - centered_pred_joints[:,:,1:]
-    scale = torch.norm(gt_joints[:,2,:]-gt_joints[:,5,:]) / torch.norm(centered_pred_joints[:,2,:]-centered_pred_joints[:,5,:])
-    # scale = torch.norm(gt_joints[:,1,:]-gt_joints[:,8,:]) / torch.norm(centered_pred_joints[:,1,:])
+    # scale = torch.norm(gt_joints[:,2,:]-gt_joints[:,5,:]) / torch.norm(centered_pred_joints[:,2,:]-centered_pred_joints[:,5,:])
+    scale = torch.norm(gt_joints[:,1,:]-gt_joints[:,8,:]) / torch.norm(centered_pred_joints[:,1,:])
+    
+    # gt_hip = (gt_joints[:,9,:] + gt_joints[:,12,:]) / 2
+    # scale_joints = scale * centered_pred_joints + gt_hip
+
     scale_joints = scale * centered_pred_joints + gt_joints[:,8,:]
+    # right_hip_offset = gt_joints[:,9,:] - pred_joints[:,9,:]
+    # left_hip_offset = gt_joints[:,12,:] - pred_joints[:,12,:]
+    # total_offset = (right_hip_offset + left_hip_offset)/2
+    # scale_joints = scale_joints + total_offset
 
     return scale_joints
 
